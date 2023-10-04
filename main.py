@@ -206,6 +206,9 @@ Sm = np.array([[0, 1],
 
 ## Hamiltonian MPO
 W = np.array([[I, Sz, 0.5 * Sp, 0.5 * Sm, Z],
+
+
+              
               [Z, Z, Z, Z, Sz],
               [Z, Z, Z, Z, Sm],
               [Z, Z, Z, Z, Sp],
