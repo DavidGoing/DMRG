@@ -177,6 +177,8 @@ def two_site_dmrg(MPS, MPO, m, sweeps):
                                                                            MPO[i], MPO[i + 1],
                                                                            E[-1], F[-1], m, 'left')
             print("Sweep {} Sites {},{}    Energy {:16.12f}    States {:4} Truncation {:16.12f}"
+
+
                   .format(sweep * 2 + 1, i, i + 1, Energy, states, trunc))
             F.append(contract_from_right(MPO[i + 1], MPS[i + 1], F[-1], MPS[i + 1]))
             E.pop();
