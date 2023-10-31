@@ -118,7 +118,7 @@ class HamiltonianMultiply(sparse.linalg.LinearOperator):
         self.W = W
         self.F = F
         self.dtype = np.dtype('d')
-        self.req_shape = [W.shape[2], E.shape[1], F.shape[2]]
+        self.req_shape = [W.shape[2], E.shape[1], F.shape[1]]
         self.size = self.req_shape[0] * self.req_shape[1] * self.req_shape[2]
         self.shape = [self.size, self.size]
 
@@ -147,7 +147,7 @@ def optimize_two_sites(A, B, W1, W2, E, F, m, dir):
     W = coarse_grain_MPO(W1, W2)
     AA = coarse_grain_MPS(A, B)
     H = HamiltonianMultiply(E, W, F)
-    E, V = sparse.linalg.eigsh(H, 1, v0=AA, which='SA')
+    E, V = sparse.linalg.eigsh(H, k=1, v0=AA, which='SA')
     AA = np.reshape(V[:, 0], H.req_shape)
     A, S, B = fine_grain_MPS(AA, [A.shape[0], B.shape[0]])
     A, S, B, trunc, m = truncate_MPS(A, S, B, m)
@@ -157,7 +157,6 @@ def optimize_two_sites(A, B, W1, W2, E, F, m, dir):
         assert dir == 'left'
         A = np.einsum("sij,jk->sik", A, np.diag(S))
     return E[0], A, B, trunc, m
-
 
 def two_site_dmrg(MPS, MPO, m, sweeps):
     E = construct_E(MPS, MPO, MPS)
@@ -178,12 +177,77 @@ def two_site_dmrg(MPS, MPO, m, sweeps):
                                                                            E[-1], F[-1], m, 'left')
             print("Sweep {} Sites {},{}    Energy {:16.12f}    States {:4} Truncation {:16.12f}"
 
-
                   .format(sweep * 2 + 1, i, i + 1, Energy, states, trunc))
             F.append(contract_from_right(MPO[i + 1], MPS[i + 1], F[-1], MPS[i + 1]))
             E.pop();
     return MPS
 
+
+class HamiltonianExcitationspace(sparse.linalg.LinearOperator):
+    def __init__(self, E, W, F,Groundstate):
+        self.E = E
+        self.W = W
+        self.F = F
+        self.Groundstate = np.reshape(Groundstate,-1)
+        self.dtype = np.dtype('d')
+        self.req_shape = [W.shape[2], E.shape[1], F.shape[1]]
+        self.size = self.req_shape[0] * self.req_shape[1] * self.req_shape[2]
+        self.shape = [self.size, self.size]
+
+    def _matvec(self, A):
+        # the einsum function doesn't appear to optimize the contractions properly,
+        # so we split it into individual summations in the optimal order
+        # R = np.einsum("aij,sik,abst,bkl->tjl",self.E,np.reshape(A, self.req_shape),
+        #              self.W,self.F, optimize=True)
+        R = np.einsum("aij,sik->ajsk", self.E, np.reshape(A, self.req_shape))
+        R = np.einsum("ajsk,abst->bjtk", R, self.W)
+        R = np.einsum("bjtk,bkl->tjl", R, self.F)
+        return np.reshape(R, -1) - self.Groundstate*np.dot(self.Groundstate,np.reshape(R, -1))
+
+def optimize_two_sites_no_gs(A, B, W1, W2, E, F, m, Ga,Gb , dir):
+    W = coarse_grain_MPO(W1, W2)
+    AA = coarse_grain_MPS(A, B)
+    GG = coarse_grain_MPS(Ga,Gb)
+    H = HamiltonianExcitationspace(E, W, F,GG)
+    E, V = sparse.linalg.eigsh(H, 1,v0=AA,  which='SA')
+    AA = np.reshape(V[:, 0], H.req_shape)
+
+    A, S, B = fine_grain_MPS(AA, [A.shape[0], B.shape[0]])
+    A, S, B, trunc, m = truncate_MPS(A, S, B, m)
+    Ga, Gs, Gb = fine_grain_MPS(GG, [Ga.shape[0], Gb.shape[0]])
+    Ga, Gs, Gb, trunc_no_use, m = truncate_MPS(Ga, Gs, Gb, m)
+
+    if (dir == 'right'):
+        B = np.einsum("ij,sjk->sik", np.diag(S), B)
+        Gb = np.einsum("ij,sjk->sik", np.diag(Gs), Gb)
+    else:
+        assert dir == 'left'
+        A = np.einsum("sij,jk->sik", A, np.diag(S))
+        Ga = np.einsum("sij,jk->sik", Ga, np.diag(Gs))
+    return E[0], A, B,Ga,Gb, trunc, m
+def two_site_dmrg_no_gs(MPS, MPO,MPS_g, m, sweeps):
+    E = construct_E(MPS, MPO, MPS)
+    F = construct_F(MPS, MPO, MPS)
+    F.pop()
+    for sweep in range(0, int(sweeps / 2)):
+        for i in range(0, len(MPS) - 2):
+            Energy, MPS[i], MPS[i + 1],MPS_g[i],MPS_g[i+1], trunc, states = optimize_two_sites_no_gs(MPS[i], MPS[i + 1],
+                                                                           MPO[i], MPO[i + 1],
+                                                                           E[-1], F[-1], m,MPS_g[i],MPS_g[i+1], 'right')
+            print("Sweep {:} Sites {:},{:}    Energy {:16.12f}    States {:4} Truncation {:16.12f}"
+                  .format(sweep * 2, i, i + 1, Energy, states, trunc))
+            E.append(contract_from_left(MPO[i], MPS[i], E[-1], MPS[i]))
+            F.pop();
+        for i in range(len(MPS) - 2, 0, -1):
+            Energy, MPS[i], MPS[i + 1], MPS_g[i],MPS_g[i+1], trunc, states = optimize_two_sites_no_gs(MPS[i], MPS[i + 1],
+                                                                           MPO[i], MPO[i + 1],
+                                                                           E[-1], F[-1], m, MPS_g[i],MPS_g[i+1],'left')
+            print("Sweep {} Sites {},{}    Energy {:16.12f}    States {:4} Truncation {:16.12f}"
+
+                  .format(sweep * 2 + 1, i, i + 1, Energy, states, trunc))
+            F.append(contract_from_right(MPO[i + 1], MPS[i + 1], F[-1], MPS[i + 1]))
+            E.pop();
+    return MPS
 
 d = 2  # local bond dimension
 N = 100  # number of sites
@@ -209,8 +273,6 @@ Sm = np.array([[0, 1],
 ## Hamiltonian MPO
 W = np.array([[I, Sz, 0.5 * Sp, 0.5 * Sm, Z],
 
-
-              
               [Z, Z, Z, Z, Sz],
               [Z, Z, Z, Z, Sm],
               [Z, Z, Z, Z, Sp],
@@ -232,4 +294,40 @@ Energy = Expectation(MPS, MPO, MPS)
 print("Final energy expectation value {}".format(Energy))
 
 H2 = Expectation(MPS, HamSquared, MPS)
+print("variance = {:16.12f}".format(H2 - Energy * Energy))
+
+
+print("################################################################################### \n"
+      "#                    Calculation of excitation state                              #\n"
+      "###################################################################################")
+# sweeps = 8
+# m = 10
+# for sweep in range(0, int(sweeps / 2)):
+#     for i in range(0, len(MPS) - 2):
+#         Ga = MPS[i]
+#         Gb = MPS[i + 1]
+#         GG = coarse_grain_MPS(MPS[i], MPS[i + 1])
+#         Ga, Gs, Gb = fine_grain_MPS(GG, [Ga.shape[0], Gb.shape[0]])
+#         Ga, Gs, Gb, trunc_no_use, m = truncate_MPS(Ga, Gs, Gb, m)
+#         Gb = np.einsum("ij,sjk->sik", np.diag(Gs), Gb)
+#         MPS[i] = Ga
+#         MPS[i+1] = Gb
+#     for i in range(len(MPS) - 2, 0, -1):
+#         Ga = MPS[i]
+#         Gb = MPS[i + 1]
+#         GG = coarse_grain_MPS(MPS[i], MPS[i + 1])
+#         Ga, Gs, Gb = fine_grain_MPS(GG, [Ga.shape[0], Gb.shape[0]])
+#         Ga, Gs, Gb, trunc_no_use, m = truncate_MPS(Ga, Gs, Gb, m)
+#         Ga = np.einsum("sij,jk->sik", Ga, np.diag(Gs))
+#         MPS[i] = Ga
+#         MPS[i + 1] = Gb
+# print('Good behavior')
+
+MPS_excitation = []
+for item in MPS:
+    MPS_excitation.append(np.random.random(np.shape(item)))
+MPS_excitation = two_site_dmrg_no_gs(MPS_excitation,MPO,MPS,10,10)
+Energy = Expectation(MPS_excitation,MPO,MPS_excitation)
+print("Final energy expectation value {}".format(Energy))
+H2 = Expectation(MPS_excitation, HamSquared, MPS_excitation)
 print("variance = {:16.12f}".format(H2 - Energy * Energy))
