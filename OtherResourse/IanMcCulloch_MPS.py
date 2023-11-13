@@ -7,7 +7,6 @@ import numpy as np
 import scipy
 import scipy.sparse.linalg
 import scipy.sparse as sparse
-import numpy.linalg as npla
 import math
 
 
@@ -119,7 +118,7 @@ class HamiltonianMultiply(sparse.linalg.LinearOperator):
         self.W = W
         self.F = F
         self.dtype = np.dtype('d')
-        self.req_shape = [W.shape[2], E.shape[1], F.shape[1]]
+        self.req_shape = [W.shape[2], E.shape[1], F.shape[2]]
         self.size = self.req_shape[0] * self.req_shape[1] * self.req_shape[2]
         self.shape = [self.size, self.size]
 
@@ -178,7 +177,6 @@ def two_site_dmrg(MPS, MPO, m, sweeps):
                                                                            MPO[i], MPO[i + 1],
                                                                            E[-1], F[-1], m, 'left')
             print("Sweep {} Sites {},{}    Energy {:16.12f}    States {:4} Truncation {:16.12f}"
-
                   .format(sweep * 2 + 1, i, i + 1, Energy, states, trunc))
             F.append(contract_from_right(MPO[i + 1], MPS[i + 1], F[-1], MPS[i + 1]))
             E.pop();
@@ -186,7 +184,7 @@ def two_site_dmrg(MPS, MPO, m, sweeps):
 
 
 d = 2  # local bond dimension
-N = 101  # number of sites
+N = 100  # number of sites
 
 InitialA1 = np.zeros((d, 1, 1))
 InitialA1[0, 0, 0] = 1
@@ -195,8 +193,6 @@ InitialA2[1, 0, 0] = 1
 
 ## initial state |01010101>
 MPS = [InitialA1, InitialA2] * int(N / 2)
-if N%2 != 0 :
-    MPS = MPS + [InitialA1]
 
 ## Local operators
 I = np.identity(2)
@@ -224,57 +220,11 @@ MPO = [Wfirst] + ([W] * (N - 2)) + [Wlast]
 
 HamSquared = product_MPO(MPO, MPO)
 
-D = 10
 # 8 sweeps with m=10 states
-MPS = two_site_dmrg(MPS, MPO, D, 8)
+MPS = two_site_dmrg(MPS, MPO, 10, 8)
 
 Energy = Expectation(MPS, MPO, MPS)
 print("Final energy expectation value {}".format(Energy))
 
 H2 = Expectation(MPS, HamSquared, MPS)
 print("variance = {:16.12f}".format(H2 - Energy * Energy))
-
-print("\n")
-print(
-"############################################################################\n\
-#                    Time evolution of Ground state using iTEBD            # \n\
-############################################################################"
-)
-tau = 0.1
-time_slice = 100
-Coupled_operator = np.einsum("st,kl-> sktl",Sz,Sz)
-Coupled_operator += 0.5*np.einsum("st,kl-> sktl",Sp,Sm)
-Coupled_operator += 0.5*np.einsum("st,kl-> sktl",Sm,Sp)
-
-Exp_Coupled = np.reshape(Coupled_operator,(4,4))
-Exp_Coupled = scipy.linalg.expm(Exp_Coupled).reshape(2,2,2,2)
-
-def move_mix_site(M1,M2,bond_dim,move_dir):
-    assert M1.shape[2] == M2.shape[1]
-    MM = coarse_grain_MPS(M1, M2)
-    A, S, B = fine_grain_MPS(MM, [M1.shape[0], M2.shape[0]])
-    A, S, B, trunc, m = truncate_MPS(A, S, B, bond_dim)
-    if move_dir == 'l':
-        A = np.einsum("sij,jk->sik", A, np.diag(S))
-    if move_dir == 'r':
-        B = np.einsum("ij,sjk->sik", np.diag(S), B)
-    return A,B
-
-def state_overlap(AList,BList):
-    R = [[1]]
-    for i in range(0, len(AList)):
-        R = np.einsum("ki,sij->")
-        Temp = np.einsum("sij,aik->sajk", A, E)
-        Temp = np.einsum("sajk,abst->tbjk", Temp, W)
-        return np.einsum("tbjk,tkl->bjl", Temp, B)
-    return R[0][0][0]
-
-Gs = MPS.copy()
-MPSt = MPS.copy()
-Measure_Output = np.zeros((time_slice,N))
-# t = 0 , do Sz measurement
-
-MPSt[N//2] = np.einsum("sij,st",Gs[N//2],Sz)
-
-
-
