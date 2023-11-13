@@ -360,16 +360,10 @@ def check_othogonal(MPS):
             infor_string.append('M')
     return ' '.join(infor_string)
 
-def mps_to_tensor_coeff_only_6site(MPS):
-    assert len(MPS) == 6
-    tensor = np.einsum('aij,bjk,ckl,dlm,emn,fno->iabcdefo',MPS[0],MPS[1],MPS[2],MPS[3],MPS[4],MPS[5])
-    # print(tensor.shape)
-    return tensor[0,:,:,:,:,:,:,0]
-
 print("Normalizatin check of Ground state",state_overlap(Gs,Gs))
 
 tau = 0.02
-time_slice = 40
+time_slice = 600
 Measure_Output = np.zeros((time_slice+1,N),dtype=complex)
 
 MPSt = copy.deepcopy(Gs)
@@ -387,31 +381,28 @@ print(
     "#      Time evolution and perform measurement    #\n"
     "##################################################"
 )
+
+
+
+def orthogonize(M,bond_dim):
+    M1 = copy.deepcopy(M)
+    M_mat = np.reshape(M1, (M1.shape[0] * M1.shape[1], M1.shape[2]))
+    A, S, B = np.linalg.svd(M_mat, full_matrices=0)
+    trunc_dim = min(bond_dim, len(S))
+    A = A[:, 0:trunc_dim]
+    S = S[0:trunc_dim]
+    B = B[0:trunc_dim, :]
+    S = np.array(S)/np.sqrt(sum([abs(item)**2 for item in S]))
+    M_mat = np.reshape(A@ np.diag(S) @B, (M1.shape[0] , M1.shape[1], M1.shape[2]))
+    return M_mat
+
 MPSt = move_mix_site(start=1,end=N//2, mix_MPS=MPSt,bond_dim=D)
-MPSt[N//2] = np.einsum("sij,st->tij",MPSt[N//2],Sz)
+MPSt[N//2] = np.einsum("sij,st->tij",MPSt[N//2],Sp)
+MPSt[N//2] = orthogonize(MPSt[N//2],D)
 MPSt = move_mix_site(start=N//2,end=1, mix_MPS=MPSt,bond_dim=D)
 
-# MPS = copy.deepcopy(Gs)
-# MPS[N//2] = np.einsum("sij,st->tij",MPS[N//2],Sz)
-
-
-# print(multi_site_measurement(MPSt,Gs,[Sz],[0]),multi_site_measurement(MPS,Gs,[Sz],[0]))
-# MPSt_ten = mps_to_tensor_coeff_only_6site(MPSt)
-# Gs_ten = mps_to_tensor_coeff_only_6site(Gs)
-# MPS_ten = mps_to_tensor_coeff_only_6site(MPS)
-# print(npla.norm(MPSt_ten-MPS_ten))
-# print(np.einsum('abcdef,al,lbcdef->',MPSt_ten,Sz,Gs_ten),np.einsum('abcdef,al,lbcdef->',MPS_ten,Sz,Gs_ten))
 
 print('############################')
-# before_MPSt = copy.deepcopy(MPSt)
-# before_MPS = copy.deepcopy(MPS)
-# mat_ran = np.random.rand(4,4)
-# mat_ran_inv = np.linalg.inv(mat_ran)
-# MPSt[1] = np.einsum('sij,jl->sil',MPSt[1],mat_ran)
-# MPS[1] = np.einsum('sij,jl->sil',MPS[1],mat_ran)
-# MPSt[2] = np.einsum('sij,ki->skj',MPSt[2],mat_ran_inv)
-# MPS[2] = np.einsum('sij,ki->skj',MPS[2],mat_ran_inv)
-# print(multi_site_measurement(MPSt,Gs,[Sz],[0]),multi_site_measurement(MPS,Gs,[Sz],[0]))
 
 start = perf_counter()
 for i in range(N):
@@ -434,7 +425,7 @@ for t in range(time_slice//2):
         B = np.einsum("ij,sjk->sik",  np.diag(S),B)
         MPSt[i], MPSt[i + 1]  = A,B
     for i in range(N):
-        Measure_Output[t*2+1 , i] = multi_site_measurement(MPSt,Gs,[Sz],[i])
+        Measure_Output[t*2+1 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
     for i in range(N-1,0,-1):
         MM = coarse_grain_MPS(MPSt[i-1], MPSt[i ])
         image = np.einsum("st,sij->tij", Exp_Coupled, MM)
@@ -444,18 +435,10 @@ for t in range(time_slice//2):
         A = np.einsum("sij,jk->sik", A, np.diag(S))
         MPSt[i - 1],MPSt[i ] = A,B
     for i in range(N):
-        Measure_Output[2*t+2 , i] = multi_site_measurement(MPSt,Gs,[Sz],[i])
+        Measure_Output[2*t+2 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
 
 end = perf_counter()
 print('time used in time evolution: {:.2f}s'.format(end-start))
-
-plt.plot(Measure_Output[0],label = "t = 0")
-plt.plot(Measure_Output[1], label = "t = 1")
-# plt.plot(Measure_Output[20], label = "t = 20")
-plt.legend()
-plt.show()
-quit()
-
 X = np.outer(np.linspace(0, N - 1, N), np.ones(time_slice + 1))
 T = np.outer(np.ones(N), np.linspace(0, tau, time_slice + 1))
 SzMatrix = np.transpose(np.array(Measure_Output).real)

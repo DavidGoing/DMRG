@@ -417,7 +417,7 @@ Correlation = [[Expectation(GS, Correlator[n], MPS) for n in range(N)]]
 
 # timestep
 dt = 0.02  # 0.02*600 for total time length
-NT = 600  # number of timesteps
+NT = 100  # number of timesteps
 Skip = 1  # only calculate correlations after this many timesteps
 for i in range(NT):
     print("timestep {} / {}".format(i, NT))
@@ -430,10 +430,15 @@ for i in range(NT):
 
 
 
-plt.plot(SzMatrix[0])
-plt.plot(SzMatrix[1])
-plt.show()
-quit()
+# plt.plot(SzMatrix[0],label = 't = 0')
+# plt.plot(SzMatrix[20], label = 't = 20')
+# plt.plot(SzMatrix[40],label = 't = 40')
+# plt.plot(SzMatrix[60],label = 't = 60')
+# plt.plot(SzMatrix[80],label = 't = 80')
+# plt.plot(SzMatrix[100],label = 't = 100')
+# plt.legend()
+# plt.show()
+# quit()
 
 X = np.outer(np.linspace(0, N - 1, N), np.ones(NT + 1))
 T = np.outer(np.ones(N), np.linspace(0, dt, NT + 1))
@@ -451,7 +456,7 @@ ax.set_xlabel("X")
 ax.set_ylabel("Time")
 ax.set_zlabel("Sz")
 ax.set_title('Evolution of the magnetization')
-fig.savefig("evolution of the magnetization")
+fig.savefig("temp")
 quit()
 # correlation function
 Correlation = np.transpose(np.array(Correlation))
