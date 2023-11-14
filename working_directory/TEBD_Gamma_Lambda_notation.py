@@ -457,7 +457,7 @@ ax.set_ylabel("Time")
 ax.set_zlabel("Sz")
 ax.set_title('Evolution of the magnetization')
 fig.savefig("temp")
-quit()
+
 # correlation function
 Correlation = np.transpose(np.array(Correlation))
 

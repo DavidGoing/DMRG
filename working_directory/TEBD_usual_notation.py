@@ -364,7 +364,8 @@ print("Normalizatin check of Ground state",state_overlap(Gs,Gs))
 
 tau = 0.02
 time_slice = 600
-Measure_Output = np.zeros((time_slice+1,N),dtype=complex)
+Evolution_Sz = np.zeros((time_slice+1,N),dtype=complex)
+Correlaion_SpSm = np.zeros((time_slice+1,N),dtype=complex)
 
 MPSt = copy.deepcopy(Gs)
 
@@ -406,7 +407,8 @@ print('############################')
 
 start = perf_counter()
 for i in range(N):
-    Measure_Output[0,i] = multi_site_measurement(MPSt,Gs,[Sz],[i])
+    Evolution_Sz[0,i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+    Correlaion_SpSm[0,i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
 
 
 Coupled_operator = np.einsum("st,kl-> sktl",Sz,Sz)
@@ -425,7 +427,8 @@ for t in range(time_slice//2):
         B = np.einsum("ij,sjk->sik",  np.diag(S),B)
         MPSt[i], MPSt[i + 1]  = A,B
     for i in range(N):
-        Measure_Output[t*2+1 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+        Evolution_Sz[t*2+1 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+        Correlaion_SpSm[t*2+1 , i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
     for i in range(N-1,0,-1):
         MM = coarse_grain_MPS(MPSt[i-1], MPSt[i ])
         image = np.einsum("st,sij->tij", Exp_Coupled, MM)
@@ -435,13 +438,13 @@ for t in range(time_slice//2):
         A = np.einsum("sij,jk->sik", A, np.diag(S))
         MPSt[i - 1],MPSt[i ] = A,B
     for i in range(N):
-        Measure_Output[2*t+2 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
-
+        Evolution_Sz[2*t+2 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+        Correlaion_SpSm[2*t+2 , i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
 end = perf_counter()
 print('time used in time evolution: {:.2f}s'.format(end-start))
 X = np.outer(np.linspace(0, N - 1, N), np.ones(time_slice + 1))
 T = np.outer(np.ones(N), np.linspace(0, tau, time_slice + 1))
-SzMatrix = np.transpose(np.array(Measure_Output).real)
+SzMatrix = np.transpose(np.array(Evolution_Sz).real)
 fig = plt.figure()
 ax = plt.axes(projection='3d')
 ax.plot_surface(X, T, SzMatrix, cmap='viridis', edgecolor='none')
@@ -449,32 +452,19 @@ ax.set_xlabel("X")
 ax.set_ylabel("Time")
 ax.set_zlabel("Sz")
 ax.set_title('Evolution of the magnetization')
-fig.savefig("temp")
-quit()
+fig.savefig("Evolution of the magnetization_me")
 
 
+Correlation = np.transpose(np.array(Correlaion_SpSm))
+Correlation = np.concatenate((np.flip(Correlation[:, 1:], axis=1), Correlation), axis=1)
+Spec = np.absolute(np.fft.fft2(Correlation))
+# Spec = Spec[:, 68:52:-1]
+NumOmega = np.shape(Spec)[1]
+K = np.outer(np.linspace(0, np.pi * 2, N), np.ones(NumOmega))
+W = np.outer(np.ones(N), np.linspace(0, NumOmega * np.pi / (tau * time_slice), NumOmega))
+fig, ax = plt.subplots()
+im = ax.imshow(abs(Spec).T, interpolation='Spline36', cmap="jet",
+               origin='lower', extent=[0, 2*np.pi,0 ,  NumOmega * np.pi / (tau * time_slice)],
+               vmax=abs(Spec).max(), vmin=0)
+plt.savefig("Spectrum_usual_notation")
 
-
-resolution_omega = 101
-omega_step = 4/(resolution_omega-1)
-
-resolution_k = 101
-k_step= 2*np.pi/(resolution_k-1)
-
-omegalist = np.linspace(start=0,stop=4,num=resolution_omega,endpoint=True)
-klist = np.linspace(start = -np.pi,stop=np.pi,num=resolution_k,endpoint=True)
-Spectrum = np.zeros((resolution_omega,resolution_k),dtype=complex)
-
-# ft = np.fft.ifftshift(Measure_Output)
-# ft = np.fft.fft2(ft,s = )
-# ft = np.fft.fftshift(ft)
-
-for i in range(resolution_omega): # omega
-    for j in range(resolution_k): # momentum
-        for k in range(time_slice+1): # time
-            for l in range(N) : # Length
-                Spectrum[i,j] = Spectrum[i,j] + Measure_Output[k,l]  * np.exp(-1j * (k*tau*omegalist[i]+(l-N//2)*klist[j]))
-
-plt.imshow(abs(Spectrum),interpolation="lanczos",cmap='viridis')
-plt.savefig("Spectrum")
-plt.show()
