@@ -186,8 +186,10 @@ def two_site_dmrg(MPS, MPO, m, sweeps):
     return MPS
 
 
+
+
 d = 2  # local bond dimension
-N = 40  # number of sites
+N = 41  # number of sites
 
 InitialA1 = np.zeros((d, 1, 1))
 InitialA1[0, 0, 0] = 1
@@ -362,8 +364,8 @@ def check_othogonal(MPS):
 
 print("Normalizatin check of Ground state",state_overlap(Gs,Gs))
 
-tau = 0.02
-time_slice = 600
+tau =0.02 # 0.02
+time_slice = 600 # 600
 Evolution_Sz = np.zeros((time_slice+1,N),dtype=complex)
 Correlaion_SpSm = np.zeros((time_slice+1,N),dtype=complex)
 
@@ -458,7 +460,7 @@ fig.savefig("Evolution of the magnetization_me")
 Correlation = np.transpose(np.array(Correlaion_SpSm))
 Correlation = np.concatenate((np.flip(Correlation[:, 1:], axis=1), Correlation), axis=1)
 Spec = np.absolute(np.fft.fft2(Correlation))
-# Spec = Spec[:, 68:52:-1]
+Spec = Spec[:, 68:52:-1]
 NumOmega = np.shape(Spec)[1]
 K = np.outer(np.linspace(0, np.pi * 2, N), np.ones(NumOmega))
 W = np.outer(np.ones(N), np.linspace(0, NumOmega * np.pi / (tau * time_slice), NumOmega))
