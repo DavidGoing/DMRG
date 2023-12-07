@@ -1,0 +1,14 @@
+{
+    "grammarly.selectors": [
+        {
+            "language": "markdown",
+            "scheme": "vscode-notebook-cell",
+            "pattern": "/Users/longmin/Documents/GitHub/DMRG/DMRG_TDVP.ipynb"
+        },
+        {
+            "language": "markdown",
+            "scheme": "vscode-notebook-cell",
+            "pattern": "/Users/longmin/Documents/GitHub/DMRG/DMRG_TDVP.ipynb"
+        }
+    ]
+}
