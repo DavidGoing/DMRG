@@ -1,3 +1,8 @@
+#####################################################
+# Simple DMRG code using MPS/MPO representations    #
+# Ian McCulloch August 2017                         #
+#####################################################
+
 import numpy as np
 import scipy
 import scipy.sparse.linalg
@@ -141,55 +146,13 @@ def optimize_site(A, W, E, F):
     E, V = sparse.linalg.eigsh(H, 1, v0=A, which='SA', tol=1E-8)
     return (E[0], np.reshape(V[:, 0], H.req_shape))
 
-def to_matrix_Hamiltonian(E, W, F):
-    H_tensor = np.einsum('aik,abst,bjl->sijtkl', E, W, F)
-    shape1 = W.shape[2] * E.shape[1] * F.shape[1]
-    shape2 = W.shape[3] * E.shape[2] * F.shape[2]
-    return np.reshape(H_tensor, [shape1, shape2])
-
-class revised_HamiltonianMultiply(sparse.linalg.LinearOperator):
-    def __init__(self, E, W, F):
-        self.E = E
-        self.W = W
-        self.F = F
-        self.dtype = np.dtype('d')
-        self.req_shape = [W.shape[2], E.shape[1], F.shape[1]]
-        self.size = self.req_shape[0] * self.req_shape[1] * self.req_shape[2]
-        self.shape = [self.size, self.size]
-
-    def _matvec(self, A):
-        # the einsum function doesn't appear to optimize the contractions properly,
-
-        # so we split it into individual summations in the optimal order
-        # R = np.einsum("aij,sik,abst,bkl->tjl",self.E,np.reshape(A, self.req_shape),
-        #              self.W,self.F, optimize=True)
-        A = np.reshape(A, -1)
-        mat_dim = self.req_shape[0] * self.req_shape[1] * self.req_shape[2]
-        H_eff = np.einsum('aik,abst,bjl->sijtkl', self.E, self.W, self.F).reshape(mat_dim,mat_dim)
-        R = H_eff @ A
-        # R = np.einsum("aij,sik->ajsk", self.E, np.reshape(A, self.req_shape))
-        # R = np.einsum("ajsk,abst->bjtk", R, self.W)
-        # R = np.einsum("bjtk,bkl->tjl", R, self.F)
-        return np.reshape(R, -1)
-
 
 def optimize_two_sites(A, B, W1, W2, E, F, m, dir):
     W = coarse_grain_MPO(W1, W2)
     AA = coarse_grain_MPS(A, B)
-
-    # H = revised_HamiltonianMultiply(E, W, F)
-    # e_val, V = sparse.linalg.eigsh(H, 1, v0=AA, which='SA')
-    # AA = np.reshape(V[:, 0], H.req_shape)
-
-    H = to_matrix_Hamiltonian(E,W,F)
-    e_val,V = scipy.linalg.eig(H)
-    idx = e_val.argsort()
-    e_val = e_val[idx]
-    V = V[:,idx]
-    req_shape = [W.shape[2], E.shape[1], F.shape[1]]
-    AA = np.reshape(V[:, 0], req_shape)
-
-
+    H = HamiltonianMultiply(E, W, F)
+    E, V = sparse.linalg.eigsh(H, 1, v0=AA, which='SA')
+    AA = np.reshape(V[:, 0], H.req_shape)
     A, S, B = fine_grain_MPS(AA, [A.shape[0], B.shape[0]])
     A, S, B, trunc, m = truncate_MPS(A, S, B, m)
     if (dir == 'right'):
@@ -197,7 +160,7 @@ def optimize_two_sites(A, B, W1, W2, E, F, m, dir):
     else:
         assert dir == 'left'
         A = np.einsum("sij,jk->sik", A, np.diag(S))
-    return e_val[0], A, B, trunc, m
+    return E[0], A, B, trunc, m
 def two_site_dmrg(MPS, MPO, m, sweeps):
     E = construct_E(MPS, MPO, MPS)
     F = construct_F(MPS, MPO, MPS)
@@ -265,18 +228,25 @@ MPO = [Wfirst] + ([W] * (N - 2)) + [Wlast]
 HamSquared = product_MPO(MPO, MPO)
 
 D = 10
-# 6 sweeps with m=10 states
+# 8 sweeps with m=10 states
 MPS = two_site_dmrg(MPS, MPO, D, 6)
+# MPS_list = show_diff_two_site_dmrg(MPS, MPO, D, 6)
+# MPS = copy.deepcopy(MPS_list[-1])
+
+print('\n')
+print(
+    "################################################################\n"
+    "#                   Benchmark of groundstate                   #\n"
+    "################################################################"
+)
+
+
 
 Energy = Expectation(MPS, MPO, MPS)
 print("Final energy expectation value {}".format(Energy))
 
 H2 = Expectation(MPS, HamSquared, MPS)
 print("variance = {:16.12f}".format(H2 - Energy * Energy))
-
-
-
-quit()
 
 Gs = copy.deepcopy(MPS)
 
@@ -286,6 +256,8 @@ def state_overlap(Co_List,Contro_List):
         R = np.einsum("ik,sij->skj",R,Co_List[i])
         R = np.einsum("skj,skl->jl",R,Contro_List[i].conjugate())
     return R[0][0]
+
+
 def multi_site_measurement(MPS1,MPS2,op_list,pos_list):
     idx = np.argsort(pos_list)
     pos_list = np.array(pos_list)[idx]
@@ -307,6 +279,7 @@ def multi_site_measurement(MPS1,MPS2,op_list,pos_list):
         expectation = np.einsum("skj,skl->jl", expectation,MPS2[j].conjugate())
     return expectation[0][0]
 
+
 def plot_Sz_correlaion_MPS(MPS_in):
     Sz_correlation = []
     for i in range(N):
@@ -318,10 +291,17 @@ def plot_Sz_correlaion_MPS(MPS_in):
     plt.title(r"$<\hat{S}_z(x)\hat{S}_z(0)>$")
     plt.xlabel("Site index")
     # plt.savefig("temp")
-    # plt.show()
-    plt.savefig("Sz_correlation_measurement")
+    plt.savefig("Sz_correlation_measurement_tebd")
     plt.close()
 plot_Sz_correlaion_MPS(Gs)
+# quit()
+
+# print("\n")
+# print(
+# "############################################################################\n\
+# #                    Time evolution of Ground state using iTEBD            # \n\
+# ############################################################################"
+# )
 
 def move_mix_site(start ,end , mix_MPS ,bond_dim):
     if end > start:
@@ -382,18 +362,32 @@ def check_othogonal(MPS):
             infor_string.append('M')
     return ' '.join(infor_string)
 
+print("Normalizatin check of Ground state",state_overlap(Gs,Gs))
 
-print("Normalizatin check of Ground state", state_overlap(Gs, Gs))
-
-tau = 0.08*30  # 0.02
-time_slice = 600//30  # 600
-Evolution_Sz = np.zeros((time_slice + 1, N), dtype=complex)
-Correlaion_SpSm = np.zeros((time_slice + 1, N), dtype=complex)
+tau =0.02 # 0.02
+time_slice = 100 # 600
+Evolution_Sz = np.zeros((time_slice+1,N),dtype=complex)
+Correlaion_SpSm = np.zeros((time_slice+1,N),dtype=complex)
 
 MPSt = copy.deepcopy(Gs)
 
 
-def orthogonize(M, bond_dim):
+# t = 0 , do Sz measurement
+# MPSt = null_two_site_dmrg(MPSt,MPO,D,8)
+
+
+
+
+print("\n")
+print(
+    "##################################################\n"
+    "#      Time evolution and perform measurement    #\n"
+    "##################################################"
+)
+
+
+
+def orthogonize(M,bond_dim):
     M1 = copy.deepcopy(M)
     M_mat = np.reshape(M1, (M1.shape[0] * M1.shape[1], M1.shape[2]))
     A, S, B = np.linalg.svd(M_mat, full_matrices=0)
@@ -401,84 +395,65 @@ def orthogonize(M, bond_dim):
     A = A[:, 0:trunc_dim]
     S = S[0:trunc_dim]
     B = B[0:trunc_dim, :]
-    S = np.array(S) / np.sqrt(sum([abs(item) ** 2 for item in S]))
-    M_mat = np.reshape(A @ np.diag(S) @ B, (M1.shape[0], M1.shape[1], M1.shape[2]))
+    S = np.array(S)/np.sqrt(sum([abs(item)**2 for item in S]))
+    M_mat = np.reshape(A@ np.diag(S) @B, (M1.shape[0] , M1.shape[1], M1.shape[2]))
     return M_mat
 
-
-MPSt = move_mix_site(start=1, end=N // 2, mix_MPS=MPSt, bond_dim=D)
-MPSt[N // 2] = np.einsum("sij,st->tij", MPSt[N // 2], Sp)
-# MPSt[N // 2] = orthogonize(MPSt[N // 2], D)
-MPSt = move_mix_site(start=N // 2, end=1, mix_MPS=MPSt, bond_dim=D)
-
-
-
+MPSt = move_mix_site(start=1,end=N//2, mix_MPS=MPSt,bond_dim=D)
+MPSt[N//2] = np.einsum("sij,st->tij",MPSt[N//2],Sp)
+MPSt[N//2] = orthogonize(MPSt[N//2],D)
+MPSt = move_mix_site(start=N//2,end=1, mix_MPS=MPSt,bond_dim=D)
 
 
 print('############################')
 
 start = perf_counter()
 for i in range(N):
-    Evolution_Sz[0, i] = multi_site_measurement(MPSt, MPSt, [Sz], [i])
-    Correlaion_SpSm[0, i] = multi_site_measurement(MPSt, Gs, [Sm], [i])
+    Evolution_Sz[0,i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+    Correlaion_SpSm[0,i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
+
+
+Coupled_operator = np.einsum("st,kl-> sktl",Sz,Sz)
+Coupled_operator += 0.5*np.einsum("st,kl-> sktl",Sp,Sm)
+Coupled_operator += 0.5*np.einsum("st,kl-> sktl",Sm,Sp)
+Exp_Coupled = np.reshape(Coupled_operator,(4,4))
+Exp_Coupled = scipy.linalg.expm(complex(0,tau)*Exp_Coupled)
 
 
 
-
-
-E = construct_E(MPSt, MPO, MPSt)
-F = construct_F(MPSt, MPO, MPSt)
-
-for t in range(time_slice // 2):
-    print('sweep: {}'.format(t))
-    F.pop()
-    for i in range(0, N - 1, 1):
-        W = coarse_grain_MPO(MPO[i], MPO[i + 1])
-        AA = coarse_grain_MPS(MPSt[i], MPSt[i + 1]).reshape(-1)
-        H = to_matrix_Hamiltonian(E=E[-1], W=W, F=F[-1])
-        AA = scipy.linalg.expm(-1j * H * tau) @ AA
-        AA = AA.reshape(MPSt[i].shape[0] * MPSt[i + 1].shape[0], MPSt[i].shape[1], MPSt[i + 1].shape[2])
-        A, S, B = fine_grain_MPS(AA, [MPSt[i].shape[0], MPSt[i + 1].shape[0]])
+for t in range(time_slice//2):
+    for i in range(0,N-1,1):
+        MM = coarse_grain_MPS(MPSt[i], MPSt[i+1])
+        image = np.einsum("st,sij->tij",Exp_Coupled,MM)
+        A, S, B = fine_grain_MPS(image, [MPSt[i].shape[0], MPSt[i + 1].shape[0]])
         A, S, B, trunc, m = truncate_MPS(A, S, B, D)
         # print(trunc)
-        B = np.einsum("ij,sjk->sik", np.diag(S), B)
-        MPSt[i], MPSt[i + 1] = A, B
-        E.append(contract_from_left(MPO[i], MPSt[i], E[-1], MPSt[i]))
-        if i == N - 2:
-            break
-        K = to_matrix_Hamiltonian(E=E[-1], W=MPO[i + 1], F=F[-1])
-        MPSt[i + 1] = np.reshape(scipy.linalg.expm(1j * K * tau) @ MPSt[i + 1].reshape(-1),[MPSt[i + 1].shape[0],MPSt[i + 1].shape[1],MPSt[i + 1].shape[2]])
-        F.pop()
+        B = np.einsum("ij,sjk->sik",  np.diag(S),B)
+        MPSt[i], MPSt[i + 1]  = A,B
     for i in range(N):
-        Evolution_Sz[t * 2 + 1, i] = multi_site_measurement(MPSt, MPSt, [Sz], [i])
-        Correlaion_SpSm[t * 2 + 1, i] = multi_site_measurement(MPSt, Gs, [Sm], [i])
-    E.pop()
-    for i in range(N - 2, -1, -1):
-        W = coarse_grain_MPO(MPO[i], MPO[i + 1])
-        AA = coarse_grain_MPS(MPSt[i], MPSt[i + 1]).reshape(-1)
-        H = to_matrix_Hamiltonian(E=E[-1], W=W, F=F[-1])
-        AA = scipy.linalg.expm(-1j * H * tau) @ AA
-        AA = AA.reshape(MPSt[i].shape[0] * MPSt[i + 1].shape[0], MPSt[i].shape[1], MPSt[i + 1].shape[2])
-        A, S, B = fine_grain_MPS(AA, [MPSt[i].shape[0], MPSt[i + 1].shape[0]])
+        Evolution_Sz[t*2+1 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+        Correlaion_SpSm[t*2+1 , i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
+    for i in range(N-1,0,-1):
+        MM = coarse_grain_MPS(MPSt[i-1], MPSt[i ])
+        image = np.einsum("st,sij->tij", Exp_Coupled, MM)
+        A, S, B = fine_grain_MPS(image, [MPSt[i-1].shape[0], MPSt[i ].shape[0]])
         A, S, B, trunc, m = truncate_MPS(A, S, B, D)
         # print(trunc)
         A = np.einsum("sij,jk->sik", A, np.diag(S))
-        MPSt[i], MPSt[i + 1] = A, B
-        F.append(contract_from_right(MPO[i + 1], MPSt[i + 1], F[-1], MPSt[i + 1]))
-        if i == 0:
-            break
-        K = to_matrix_Hamiltonian(E=E[-1], W=MPO[i + 1], F=F[-1])
-        MPSt[i] = np.reshape(scipy.linalg.expm(1j * K * tau) @ MPSt[i].reshape(-1),[MPSt[i].shape[0],MPSt[i].shape[1],MPSt[i].shape[2]])
-        E.pop()
+        MPSt[i - 1],MPSt[i ] = A,B
     for i in range(N):
-        Evolution_Sz[2 * t + 2, i] = multi_site_measurement(MPSt, MPSt, [Sz], [i])
-        Correlaion_SpSm[2 * t + 2, i] = multi_site_measurement(MPSt, Gs, [Sm], [i])
+        Evolution_Sz[2*t+2 , i] = multi_site_measurement(MPSt,MPSt,[Sz],[i])
+        Correlaion_SpSm[2*t+2 , i] = multi_site_measurement(MPSt,Gs,[Sm],[i])
 end = perf_counter()
-print('time used in time evolution: {:.2f}s'.format(end - start))
+print('time used in time evolution: {:.2f}s'.format(end-start))
 
-plt.plot(Evolution_Sz[-1,:])
-plt.savefig('check')
-quit()
+
+# print(npla.norm(Evolution_Sz[0,:]))
+# print(npla.norm(Evolution_Sz[1,:]))
+# quit()
+
+
+
 X = np.outer(np.linspace(0, N - 1, N), np.ones(time_slice + 1))
 T = np.outer(np.ones(N), np.linspace(0, tau, time_slice + 1))
 SzMatrix = np.transpose(np.array(Evolution_Sz).real)
@@ -489,18 +464,13 @@ ax.set_xlabel("X")
 ax.set_ylabel("Time")
 ax.set_zlabel("Sz")
 ax.set_title('Evolution of the magnetization')
-plt.show()
-plt.close()
-fig.savefig("Evolution of the magnetization_me")
+fig.savefig("Evolution of the magnetization_tebd100step")
 
-# phase_factor = [np.exp(Energy*1j*tau*i) for i in range(-time_slice,time_slice+1)]
-#
+
 # Correlation = np.transpose(np.array(Correlaion_SpSm))
-# Correlation = np.concatenate((np.flip(Correlation[:, 1:].conjugate(), axis=1), Correlation), axis=1)
-# Correlation = Correlation @ np.diag(phase_factor)
+# Correlation = np.concatenate((np.flip(Correlation[:, 1:], axis=1), Correlation), axis=1)
 # Spec = np.absolute(np.fft.fft2(Correlation))
-# # Spec = Spec[:, 68:52:-1]
-# Spec = Spec[:, 1065:1090]
+# Spec = Spec[:, 68:52:-1]
 # NumOmega = np.shape(Spec)[1]
 # K = np.outer(np.linspace(0, np.pi * 2, N), np.ones(NumOmega))
 # W = np.outer(np.ones(N), np.linspace(0, NumOmega * np.pi / (tau * time_slice), NumOmega))
@@ -508,6 +478,5 @@ fig.savefig("Evolution of the magnetization_me")
 # im = ax.imshow(abs(Spec).T, interpolation='Spline36', cmap="jet",
 #                origin='lower', extent=[0, 2*np.pi,0 ,  NumOmega * np.pi / (tau * time_slice)],
 #                vmax=abs(Spec).max(), vmin=0)
-# ax.set_title('Spectrum')
-# plt.show()
+# plt.savefig("Spectrum_usual_notation")
 

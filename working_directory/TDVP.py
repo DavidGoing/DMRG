@@ -28,7 +28,7 @@ def contract_from_right(W, A, F, B):
     # return np.einsum("abst,sij,bjl,tkl->aik",W,A,F,B, optimize=True)
     Temp = np.einsum("sij,bjl->sbil", A, F)
     Temp = np.einsum("sbil,abst->tail", Temp, W)
-    return np.einsum("tail,tkl->aik", Temp, B)
+    return np.einsum("tail,tkl->aik", Temp, B.conjugate())
 
 
 def contract_from_left(W, A, E, B):
@@ -37,7 +37,7 @@ def contract_from_left(W, A, E, B):
     # return np.einsum("abst,sij,aik,tkl->bjl",W,A,E,B, optimize=True)
     Temp = np.einsum("sij,aik->sajk", A, E)
     Temp = np.einsum("sajk,abst->tbjk", Temp, W)
-    return np.einsum("tbjk,tkl->bjl", Temp, B)
+    return np.einsum("tbjk,tkl->bjl", Temp, B.conjugate())
 
 
 # construct the F-matrices for all sites except the first
@@ -273,9 +273,11 @@ def plot_Sz_correlaion_MPS(MPS_in):
     plt.xlabel("Site index")
     # plt.savefig("temp")
     # plt.show()
-    plt.savefig("Sz_correlation_measurement")
+    plt.savefig("Sz_correlation_measurement_tdvp")
     plt.close()
 plot_Sz_correlaion_MPS(Gs)
+
+# quit()
 
 def move_mix_site(start ,end , mix_MPS ,bond_dim):
     if end > start:
@@ -362,8 +364,8 @@ def orthogonize(M, bond_dim):
 
 MPSt = move_mix_site(start=1, end=N // 2, mix_MPS=MPSt, bond_dim=D)
 MPSt[N // 2] = np.einsum("sij,st->tij", MPSt[N // 2], Sp)
-# MPSt[N // 2] = orthogonize(MPSt[N // 2], D)
-MPSt = move_mix_site(start=N // 2, end=1, mix_MPS=MPSt, bond_dim=D)
+MPSt[N // 2] = orthogonize(MPSt[N // 2], D)
+MPSt = move_mix_site(start=N // 2, end=0, mix_MPS=MPSt, bond_dim=D)
 
 
 
@@ -383,9 +385,9 @@ def to_matrix_Hamiltonian(E, W, F):
     shape2 = W.shape[3] * E.shape[2] * F.shape[2]
     return np.reshape(H_tensor, [shape1, shape2])
 
-
 E = construct_E(MPSt, MPO, MPSt)
 F = construct_F(MPSt, MPO, MPSt)
+
 
 for t in range(time_slice // 2):
     print('sweep: {}'.format(t))
@@ -450,6 +452,8 @@ ax.set_title('Evolution of the magnetization')
 plt.show()
 plt.close()
 fig.savefig("Evolution of the magnetization_me")
+
+np.save('data_sz_coor.npy',Evolution_Sz)
 
 # phase_factor = [np.exp(Energy*1j*tau*i) for i in range(-time_slice,time_slice+1)]
 #
