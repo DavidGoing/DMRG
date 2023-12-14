@@ -341,8 +341,8 @@ def check_othogonal(MPS):
 
 print("Normalizatin check of Ground state", state_overlap(Gs, Gs))
 
-tau = 0.02  # 0.02
-time_slice = 600  # 600
+tau = 0.2  # 0.02
+time_slice = 60  # 600
 Evolution_Sz = np.zeros((time_slice + 1, N), dtype=complex)
 Correlaion_SpSm = np.zeros((time_slice + 1, N), dtype=complex)
 
@@ -427,7 +427,7 @@ for t in range(time_slice // 2):
         F.append(contract_from_right(MPO[i + 1], MPSt[i + 1], F[-1], MPSt[i + 1]))
         if i == 0:
             break
-        K = to_matrix_Hamiltonian(E=E[-1], W=MPO[i + 1], F=F[-1])
+        K = to_matrix_Hamiltonian(E=E[-1], W=MPO[i], F=F[-1])
         MPSt[i] = np.reshape(scipy.linalg.expm(1j * K * tau) @ MPSt[i].reshape(-1),[MPSt[i].shape[0],MPSt[i].shape[1],MPSt[i].shape[2]])
         E.pop()
     for i in range(N):
@@ -449,11 +449,11 @@ ax.set_xlabel("X")
 ax.set_ylabel("Time")
 ax.set_zlabel("Sz")
 ax.set_title('Evolution of the magnetization')
-plt.show()
+# plt.show()
 plt.close()
-fig.savefig("Evolution of the magnetization_me")
+fig.savefig("Evolution of the magnetization_tdvp")
 
-np.save('data_sz_coor.npy',Evolution_Sz)
+# np.save('data_sz_coor.npy',Evolution_Sz)
 
 # phase_factor = [np.exp(Energy*1j*tau*i) for i in range(-time_slice,time_slice+1)]
 #
